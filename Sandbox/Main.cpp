@@ -2,8 +2,8 @@
 
 int main(void)
 {
-	printf("Hello, Sunbird!\n");
-	getchar();
+    printf("Hello, Sunbird!\n");
+    getchar();
 
 	return(0);
 }
