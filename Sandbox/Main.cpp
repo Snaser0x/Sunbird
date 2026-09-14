@@ -1,9 +1,11 @@
+#include "Types.h"
+
 #include <cstdio>
 
 int main(void)
 {
     printf("Hello, Sunbird!\n");
-    getchar();
 
+    getchar();
 	return(0);
 }
