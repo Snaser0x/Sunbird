@@ -33,7 +33,7 @@ struct String16
     usize Capacity;
 };
 
-constexpr StringView8 SV8(const char8* data)
+inline StringView8 SV8(const char8* data)
 {
     usize length = 0;
     while(data[length] != '\0')
@@ -44,7 +44,7 @@ constexpr StringView8 SV8(const char8* data)
     return StringView8{ data, length };
 }
 
-constexpr StringView16 SV16(const char16* data)
+inline StringView16 SV16(const char16* data)
 {
     usize length = 0;
     while(data[length] != '\0')
