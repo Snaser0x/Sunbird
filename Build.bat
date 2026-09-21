@@ -24,6 +24,8 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Main.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32Window.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32Input.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
     /Fd"Sunbird.pdb" /Fe"Sunbird.exe" ^
     /link /nologo /DEBUG Kernel32.lib User32.lib
     if !errorlevel! neq 0 goto error
@@ -34,6 +36,8 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Main.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32Window.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32Input.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
     /Fe"Sunbird.exe" ^
     /link /nologo Kernel32.lib User32.lib
     if !errorlevel! neq 0 goto error

@@ -1,5 +1,6 @@
 #include "Win32Window.h"
 #include "Engine/Platform/Window.h"
+#include "Win32Input.h"
 
 struct Window
 {
@@ -119,6 +120,8 @@ bool Win32WindowCreate(StackAllocator* allocator, StringView8 title, uint32 widt
 
 bool Win32WindowPumpEvents()
 {
+    Win32InputBegin();
+
     MSG message;
     while(PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
     {
@@ -126,6 +129,8 @@ bool Win32WindowPumpEvents()
         {
             return(false);
         }
+
+        Win32InputProcess(message.hwnd, message.message, message.wParam, message.lParam);
 
         TranslateMessage(&message);
         DispatchMessageW(&message);
