@@ -2,7 +2,6 @@
 #define SUNBIRD_STACKALLOCATOR_H
 
 #include "Core/Types.h"
-#include "Units.h"
 
 #define ALIGNUP(address, alignmentBytes) ((((usize)(address)) + (alignmentBytes) - 1) & (~((alignmentBytes) - 1)))
 
@@ -18,7 +17,7 @@ struct StackAllocator
 enum class Heap : uint8
 {
     Lower = 0,
-        Upper
+    Upper
 };
 
 struct Frame
@@ -77,7 +76,9 @@ inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, uint8 al
 inline usize GetAvailableMemory(StackAllocator* allocator)
 {
     if(!allocator)
+    {
         return 0;
+    }
 
     return allocator->UpperHeap - allocator->LowerHeap;
 }
@@ -85,7 +86,9 @@ inline usize GetAvailableMemory(StackAllocator* allocator)
 inline usize GetUsedMemory(StackAllocator* allocator)
 {
     if(!allocator)
+    {
         return 0;
+    }
 
     return (allocator->LowerHeap - allocator->Base) + (allocator->Cap - allocator->UpperHeap);
 }

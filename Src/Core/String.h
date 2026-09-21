@@ -2,7 +2,7 @@
 #define SUNBIRD_STRING_H
 
 #include "Types.h"
-#include "Memory/StackAllocator.h"
+#include "Engine/Platform/StackAllocator.h"
 
 using char8 = char8_t;
 using char16 = char16_t;

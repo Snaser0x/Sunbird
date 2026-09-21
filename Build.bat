@@ -20,18 +20,18 @@ pushd "!BUILD_DIR!"
 if "!BUILD!"=="debug" (
     echo [Sunbird] Compiling and linking [debug]...
     cl /nologo /std:c++20 /permissive- /MTd /Od /Zi /utf-8^
-    /I "%~dp0Include" ^
-    "%~dp0Sandbox\Main.cpp" ^
-    "%~dp0Src\Platforms\Windows\Memory\Win32StackAllocator.cpp" ^
+    /I "%~dp0Src" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32Main.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
     /Fd"Sunbird.pdb" /Fe"Sunbird.exe" ^
     /link /nologo /DEBUG Kernel32.lib User32.lib
     if !errorlevel! neq 0 goto error
 ) else (
     echo [Sunbird] Compiling and linking [release]...
     cl /nologo /std:c++20 /permissive- /MT /O2 /utf-8^
-    /I "%~dp0Include" ^
-    "%~dp0Sandbox\Main.cpp" ^
-    "%~dp0Src\Platforms\Windows\Memory\Win32StackAllocator.cpp" ^
+    /I "%~dp0Src" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32Main.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
     /Fe"Sunbird.exe" ^
     /link /nologo Kernel32.lib User32.lib
     if !errorlevel! neq 0 goto error
