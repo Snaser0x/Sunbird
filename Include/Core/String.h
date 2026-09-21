@@ -55,8 +55,77 @@ constexpr StringView16 SV16(const char16* data)
     return StringView16{ data, length };
 }
 
-inline StringView16 SV8ToSV16(StringView8 view, char16_t* buffer, usize bufferCapacity)
+inline usize SV8ToSV16Length(StringView8 view)
 {
+    usize length = 0;
+
+    for (usize i = 0; i < view.Length;)
+    {
+        char8 c = view.Data[i];
+
+        // 1-byte (ASCII).
+        if ((c & 0x80) == 0)
+        {
+            length += 1;
+            i += 1;
+        }
+        // 2-byte.
+        else if ((c & 0xE0) == 0xC0)
+        {
+            if (i + 1 >= view.Length)
+            {
+                break;
+            }
+
+            length += 1;
+            i += 2;
+        }
+        // 3-byte.
+        else if ((c & 0xF0) == 0xE0)
+        {
+            if (i + 2 >= view.Length)
+            {
+                break;
+            }
+
+            length += 1;
+            i += 3;
+        }
+        // 4-byte (surrogate pair).
+        else if ((c & 0xF8) == 0xF0)
+        {
+            if (i + 3 >= view.Length)
+            {
+                break;
+            }
+
+            length += 2;
+            i += 4;
+        }
+        // Invalid byte, skip.
+        else
+        {
+            i += 1;
+        }
+    }
+
+    return length;
+}
+
+inline StringView16 SV8ToSV16(StackAllocator* allocator, StringView8 view)
+{
+    if(!allocator)
+    {
+        return StringView16{ nullptr, 0 };
+    }
+
+    usize bufferCapacity = SV8ToSV16Length(view) + 1;
+    char16* buffer = (char16*)Allocate(allocator, Heap::Upper, bufferCapacity * sizeof(char16), alignof(char16));
+    if(!buffer)
+    {
+        return StringView16{ nullptr, 0 };
+    }
+
     usize bufferIndex = 0;
 
     for (usize i = 0; i < view.Length;)
@@ -101,11 +170,6 @@ inline StringView16 SV8ToSV16(StringView8 view, char16_t* buffer, usize bufferCa
                 break;
             }
 
-            if (bufferIndex + 1 >= bufferCapacity)
-            {
-                break;
-            }
-
             uint32 codepoint = ((c & 0x07) << 18) | ((view.Data[i+1] & 0x3F) << 12) | ((view.Data[i+2] & 0x3F) << 6) | (view.Data[i+3] & 0x3F);
 
             codepoint -= 0x10000;
@@ -120,11 +184,8 @@ inline StringView16 SV8ToSV16(StringView8 view, char16_t* buffer, usize bufferCa
         }
     }
 
-    if(bufferIndex < bufferCapacity)
-    {
-        buffer[bufferIndex] = u'\0';
-    }
-
+    buffer[bufferIndex] = u'\0';
+    
     return StringView16{ buffer, bufferIndex };
 }
 

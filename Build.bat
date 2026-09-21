@@ -24,7 +24,7 @@ if "!BUILD!"=="debug" (
     "%~dp0Sandbox\Main.cpp" ^
     "%~dp0Src\Platforms\Windows\Memory\Win32StackAllocator.cpp" ^
     /Fd"Sunbird.pdb" /Fe"Sunbird.exe" ^
-    /link /nologo /DEBUG kernel32.lib user32.lib
+    /link /nologo /DEBUG Kernel32.lib User32.lib
     if !errorlevel! neq 0 goto error
 ) else (
     echo [Sunbird] Compiling and linking [release]...
@@ -33,7 +33,7 @@ if "!BUILD!"=="debug" (
     "%~dp0Sandbox\Main.cpp" ^
     "%~dp0Src\Platforms\Windows\Memory\Win32StackAllocator.cpp" ^
     /Fe"Sunbird.exe" ^
-    /link /nologo kernel32.lib user32.lib
+    /link /nologo Kernel32.lib User32.lib
     if !errorlevel! neq 0 goto error
 )
 

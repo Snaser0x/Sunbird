@@ -19,11 +19,10 @@ if exist "!BUILD_DIR!" (
 
     start "" "Sunbird.exe"
     popd
+    endlocal
+    exit /b 0
 ) else (
     echo [Sunbird] Sunbird.exe not found. Run Build.bat %BUILD% first.
     endlocal
     exit /b 1
 )
-
-endlocal
-exit /b 0
