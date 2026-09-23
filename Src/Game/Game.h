@@ -1,9 +1,10 @@
 #if !defined(SUNBIRD_GAME_H)
 #define SUNBIRD_GAME_H
 
-#include "Engine/Platform/StackAllocator.h"
+#include "Core/StackAllocator.h"
 #include "Engine/Platform/Window.h"
 #include "Engine/Platform/Input.h"
+#include "Engine/Render/Render.h"
 
 inline bool GameInit(StackAllocator* allocator)
 {

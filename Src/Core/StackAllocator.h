@@ -1,9 +1,10 @@
 #if !defined(SUNBIRD_STACKALLOCATOR_H)
 #define SUNBIRD_STACKALLOCATOR_H
 
-#include "Core/Types.h"
+#include "Types.h"
 
-#define ALIGNUP(address, alignmentBytes) ((((usize)(address)) + (alignmentBytes) - 1) & (~((alignmentBytes) - 1)))
+#define ALIGNUP(address, alignmentBytes) ((((usize)(address)) + ((usize)(alignmentBytes)) - 1) & (~(((usize)(alignmentBytes)) - 1)))
+#define ALIGNDOWN(address, alignmentBytes) ((((usize)(address))) & (~(((usize)(alignmentBytes)) - 1)))
 
 struct StackAllocator
 {
@@ -29,7 +30,7 @@ struct Frame
 bool InitStackAllocator(StackAllocator* allocator, usize size);
 void ShutdownStackAllocator(StackAllocator* allocator);
 
-inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, uint8 alignment)
+inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, usize alignment)
 {
     if(!allocator || size == 0 || alignment == 0)
     {
@@ -42,15 +43,23 @@ inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, uint8 al
         return nullptr;
     }
 
+    usize lower = (usize)allocator->LowerHeap;
+    usize upper = (usize)allocator->UpperHeap;
+
     void* memory;
     if(heap == Heap::Upper)
     {
         // From upper heap (down).
-        usize aligned = ALIGNUP((usize)(allocator->UpperHeap - size), alignment);
-
-        if(aligned < (usize)allocator->LowerHeap)
+        if(size > upper - lower)
         {
-            return nullptr; // Out of memory or collision
+            return nullptr; // Out of memory
+        }
+
+        // NOTE(saeb): Growing down, so align down; aligning up would move back into memory already handed out.
+        usize aligned = ALIGNDOWN(upper - size, alignment);
+        if(aligned < lower)
+        {
+            return nullptr; // Alignment padding collides with lower heap
         }
 
         allocator->UpperHeap = (uint8*)aligned;
@@ -59,9 +68,8 @@ inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, uint8 al
     else
     {
         // From lower heap (up).
-        usize aligned = ALIGNUP((usize)allocator->LowerHeap, alignment);
-
-        if(aligned + size > (usize)allocator->UpperHeap)
+        usize aligned = ALIGNUP(lower, alignment);
+        if(aligned > upper || size > upper - aligned)
         {
             return nullptr; // Out of memory or collision
         }

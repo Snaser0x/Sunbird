@@ -2,7 +2,7 @@
 #define SUNBIRD_STRING_H
 
 #include "Types.h"
-#include "Engine/Platform/StackAllocator.h"
+#include "StackAllocator.h"
 
 using char8 = char8_t;
 using char16 = char16_t;
@@ -55,58 +55,89 @@ inline StringView16 SV16(const char16* data)
     return StringView16{ data, length };
 }
 
+struct UTF8Decoded
+{
+    uint32 Codepoint;
+    usize Length;
+};
+
+inline UTF8Decoded UTF8DecodeNext(StringView8 view, usize index)
+{
+    // NOTE(saeb): Invalid input decodes to U+FFFD and consumes one byte, so a bad byte never swallows the valid bytes after it.
+    const uint32 Replacement = 0xFFFD;
+    char8 lead = view.Data[index];
+
+    // 1-byte (ASCII).
+    if((lead & 0x80) == 0)
+    {
+        return(UTF8Decoded{ lead, 1 });
+    }
+
+    usize length;
+    uint32 codepoint;
+    uint32 minimum;
+
+    if((lead & 0xE0) == 0xC0)
+    {
+        length = 2;
+        codepoint = lead & 0x1F;
+        minimum = 0x80;
+    }
+    else if((lead & 0xF0) == 0xE0)
+    {
+        length = 3;
+        codepoint = lead & 0x0F;
+        minimum = 0x800;
+    }
+    else if((lead & 0xF8) == 0xF0)
+    {
+        length = 4;
+        codepoint = lead & 0x07;
+        minimum = 0x10000;
+    }
+    else
+    {
+        // Continuation byte without a lead, or 0xF8..0xFF.
+        return(UTF8Decoded{ Replacement, 1 });
+    }
+
+    // Truncated at the end of the view.
+    if(length > view.Length - index)
+    {
+        return(UTF8Decoded{ Replacement, 1 });
+    }
+
+    for(usize i = 1; i < length; ++i)
+    {
+        char8 next = view.Data[index + i];
+        if((next & 0xC0) != 0x80)
+        {
+            return(UTF8Decoded{ Replacement, 1 });
+        }
+
+        codepoint = (codepoint << 6) | (next & 0x3F);
+    }
+
+    // Overlong, UTF-16 surrogate, or beyond Unicode.
+    if(codepoint < minimum || (codepoint >= 0xD800 && codepoint <= 0xDFFF) || codepoint > 0x10FFFF)
+    {
+        return(UTF8Decoded{ Replacement, 1 });
+    }
+
+    return(UTF8Decoded{ codepoint, length });
+}
+
 inline usize SV8ToSV16Length(StringView8 view)
 {
     usize length = 0;
 
-    for (usize i = 0; i < view.Length;)
+    for(usize i = 0; i < view.Length;)
     {
-        char8 c = view.Data[i];
+        UTF8Decoded decoded = UTF8DecodeNext(view, i);
 
-        // 1-byte (ASCII).
-        if ((c & 0x80) == 0)
-        {
-            length += 1;
-            i += 1;
-        }
-        // 2-byte.
-        else if ((c & 0xE0) == 0xC0)
-        {
-            if (i + 1 >= view.Length)
-            {
-                break;
-            }
-
-            length += 1;
-            i += 2;
-        }
-        // 3-byte.
-        else if ((c & 0xF0) == 0xE0)
-        {
-            if (i + 2 >= view.Length)
-            {
-                break;
-            }
-
-            length += 1;
-            i += 3;
-        }
-        // 4-byte (surrogate pair).
-        else if ((c & 0xF8) == 0xF0)
-        {
-            if (i + 3 >= view.Length)
-            {
-                break;
-            }
-
-            length += 2;
-            i += 4;
-        }
-        // Invalid byte, skip.
-        else
-        {
-            i += 1;
-        }
+        // Above the BMP needs a surrogate pair.
+        length += (decoded.Codepoint >= 0x10000) ? 2 : 1;
+        i += decoded.Length;
     }
 
     return length;
@@ -128,60 +159,23 @@ inline StringView16 SV8ToSV16(StackAllocator* allocator, StringView8 view)
 
     usize bufferIndex = 0;
 
-    for (usize i = 0; i < view.Length;)
+    for(usize i = 0; i < view.Length;)
     {
-        char8 c = view.Data[i];
+        UTF8Decoded decoded = UTF8DecodeNext(view, i);
 
-        // 1-byte (ASCII).
-        if ((c & 0x80) == 0)
+        if(decoded.Codepoint >= 0x10000)
         {
-            buffer[bufferIndex++] = (char16_t)c;
-            i += 1;
+            // Surrogate pair.
+            uint32 offset = decoded.Codepoint - 0x10000;
+            buffer[bufferIndex++] = (char16)(0xD800 + (offset >> 10));
+            buffer[bufferIndex++] = (char16)(0xDC00 + (offset & 0x3FF));
         }
-        // 2-byte.
-        else if ((c & 0xE0) == 0xC0)
-        {
-            if (i + 1 >= view.Length)
-            {
-                break;
-            }
-
-            char16_t codepoint = ((c & 0x1F) << 6) | (view.Data[i+1] & 0x3F);
-            buffer[bufferIndex++] = codepoint;
-            i += 2;
-        }
-        // 3-byte.
-        else if ((c & 0xF0) == 0xE0)
-        {
-            if (i + 2 >= view.Length)
-            {
-                break;
-            }
-
-            char16_t codepoint = ((c & 0x0F) << 12) | ((view.Data[i+1] & 0x3F) << 6) | (view.Data[i+2] & 0x3F);
-            buffer[bufferIndex++] = codepoint;
-            i += 3;
-        }
-        // 4-byte (surrogate pair).
-        else if ((c & 0xF8) == 0xF0)
-        {
-            if (i + 3 >= view.Length)
-            {
-                break;
-            }
-
-            uint32 codepoint = ((c & 0x07) << 18) | ((view.Data[i+1] & 0x3F) << 12) | ((view.Data[i+2] & 0x3F) << 6) | (view.Data[i+3] & 0x3F);
-
-            codepoint -= 0x10000;
-            buffer[bufferIndex++] = 0xD800 + (codepoint >> 10);
-            buffer[bufferIndex++] = 0xDC00 + (codepoint & 0x3FF);
-            i += 4;
-        }
-        // Invalid byte, skip.
         else
         {
-            i += 1;
+            buffer[bufferIndex++] = (char16)decoded.Codepoint;
         }
+
+        i += decoded.Length;
     }
 
     buffer[bufferIndex] = u'\0';

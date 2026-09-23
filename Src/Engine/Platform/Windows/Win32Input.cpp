@@ -3,8 +3,8 @@
 
 struct InputButtonState
 {
-    bool IsDown; // Currently held; persists across frames
-    bool WasDown; // Held last frame; snapshotted at frame start
+    bool IsDown; // State at the end of the frame; persists across frames
+    uint8 TransitionCount; // Up/down changes this frame; reset at frame start
 };
 
 static bool InputIsDown(InputButtonState button)
@@ -14,12 +14,13 @@ static bool InputIsDown(InputButtonState button)
 
 static bool InputPressed(InputButtonState button)
 {
-    return(button.IsDown && !button.WasDown);
+    // NOTE(saeb): Went up->down at least once this frame; a tap within one frame ends up with 2 transitions.
+    return((button.IsDown && button.TransitionCount >= 1) || (!button.IsDown && button.TransitionCount >= 2));
 }
 
 static bool InputReleased(InputButtonState button)
 {
-    return(!button.IsDown && button.WasDown);
+    return((!button.IsDown && button.TransitionCount >= 1) || (button.IsDown && button.TransitionCount >= 2));
 }
 
 struct InputKeyboard
@@ -43,6 +44,20 @@ struct Input
 };
 static Input InputData = {};
 
+static void InputSetButtonState(InputButtonState* button, bool isDown)
+{
+    // NOTE(saeb): Only count real changes; autorepeat sends WM_KEYDOWN again while a key is already down.
+    if(button->IsDown != isDown)
+    {
+        button->IsDown = isDown;
+
+        if(button->TransitionCount < 255)
+        {
+            ++button->TransitionCount;
+        }
+    }
+}
+
 static InputButtonState InputGetButtonState(InputKey key)
 {
     return(InputData.Keyboard.Keys[static_cast<usize>(key)]);
@@ -51,6 +66,35 @@ static InputButtonState InputGetButtonState(InputKey key)
 static InputButtonState InputGetButtonState(InputMouseButton mouseButton)
 {
     return(InputData.Mouse.Buttons[static_cast<usize>(mouseButton)]);
+}
+
+static bool InputAnyMouseButtonDown()
+{
+    for(usize mouseButtonIndex = 0; mouseButtonIndex < static_cast<usize>(InputMouseButton::Count); ++mouseButtonIndex)
+    {
+        if(InputData.Mouse.Buttons[mouseButtonIndex].IsDown)
+        {
+            return(true);
+        }
+    }
+
+    return(false);
+}
+
+static void InputReleaseAllKeys()
+{
+    for(usize keyIndex = 0; keyIndex < static_cast<usize>(InputKey::Count); ++keyIndex)
+    {
+        InputSetButtonState(&InputData.Keyboard.Keys[keyIndex], false);
+    }
+}
+
+static void InputReleaseAllMouseButtons()
+{
+    for(usize mouseButtonIndex = 0; mouseButtonIndex < static_cast<usize>(InputMouseButton::Count); ++mouseButtonIndex)
+    {
+        InputSetButtonState(&InputData.Mouse.Buttons[mouseButtonIndex], false);
+    }
 }
 
 static InputKey Win32InputTranslateKey(WPARAM virtualKeyCode)
@@ -114,13 +158,42 @@ static InputKey Win32InputTranslateKey(WPARAM virtualKeyCode)
     }
 }
 
+static InputMouseButton Win32InputTranslateMouseButton(UINT message)
+{
+    switch(message)
+    {
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        {
+            return(InputMouseButton::Left);
+        }
+
+        case WM_RBUTTONDOWN:
+        case WM_RBUTTONUP:
+        {
+            return(InputMouseButton::Right);
+        }
+
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONUP:
+        {
+            return(InputMouseButton::Middle);
+        }
+
+        default:
+        {
+            return(InputMouseButton::Unknown);
+        }
+    }
+}
+
 void Win32InputBegin()
 {
     if(InputData.Flags & InputFlags_Keyboard)
     {
         for(usize keyIndex = 0; keyIndex < static_cast<usize>(InputKey::Count); ++keyIndex)
         {
-            InputData.Keyboard.Keys[keyIndex].WasDown = InputData.Keyboard.Keys[keyIndex].IsDown;
+            InputData.Keyboard.Keys[keyIndex].TransitionCount = 0;
         }
     }
 
@@ -128,7 +201,7 @@ void Win32InputBegin()
     {
         for(usize mouseButtonIndex = 0; mouseButtonIndex < static_cast<usize>(InputMouseButton::Count); ++mouseButtonIndex)
         {
-            InputData.Mouse.Buttons[mouseButtonIndex].WasDown = InputData.Mouse.Buttons[mouseButtonIndex].IsDown;
+            InputData.Mouse.Buttons[mouseButtonIndex].TransitionCount = 0;
         }
     }
 }
@@ -151,14 +224,8 @@ void Win32InputProcess(HWND windowHandle, UINT message, WPARAM wParam, LPARAM lP
 
             if(key != InputKey::Unknown)
             {
-                if(message == WM_KEYUP || message == WM_SYSKEYUP)
-                {
-                    InputData.Keyboard.Keys[static_cast<usize>(key)].IsDown = false;
-                }
-                else
-                {
-                    InputData.Keyboard.Keys[static_cast<usize>(key)].IsDown = true;
-                }
+                bool isDown = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
+                InputSetButtonState(&InputData.Keyboard.Keys[static_cast<usize>(key)], isDown);
             }
         } break;
 
@@ -173,72 +240,60 @@ void Win32InputProcess(HWND windowHandle, UINT message, WPARAM wParam, LPARAM lP
             InputData.Mouse.Y = (int32)(int16)HIWORD(lParam);
         } break;
 
-        case WM_RBUTTONUP:
-        {
-            if(InputData.Flags & InputFlags_Mouse)
-            {
-                InputData.Mouse.Buttons[static_cast<usize>(InputMouseButton::Right)].IsDown = false;
-            }
-        } break;
-
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
         case WM_RBUTTONDOWN:
-        {
-            if(InputData.Flags & InputFlags_Mouse)
-            {
-                InputData.Mouse.Buttons[static_cast<usize>(InputMouseButton::Right)].IsDown = true;
-            }
-        } break;
-
+        case WM_RBUTTONUP:
+        case WM_MBUTTONDOWN:
         case WM_MBUTTONUP:
         {
-            if(InputData.Flags & InputFlags_Mouse)
+            if(!(InputData.Flags & InputFlags_Mouse))
             {
-                InputData.Mouse.Buttons[static_cast<usize>(InputMouseButton::Middle)].IsDown = false;
+                break;
             }
-        } break;
 
-        case WM_MBUTTONDOWN:
-        {
-            if(InputData.Flags & InputFlags_Mouse)
+            InputMouseButton mouseButton = Win32InputTranslateMouseButton(message);
+            bool isDown = (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN);
+
+            InputSetButtonState(&InputData.Mouse.Buttons[static_cast<usize>(mouseButton)], isDown);
+
+            // NOTE(saeb): Capture while any button is held so the button-up still arrives outside the window. State is updated first because ReleaseCapture() sends WM_CAPTURECHANGED synchronously. SetCapture() sends WM_CAPTURECHANGED even
+            // when this window already has capture, so only take it once.
+            if(isDown)
             {
-                InputData.Mouse.Buttons[static_cast<usize>(InputMouseButton::Middle)].IsDown = true;
+                if(GetCapture() != windowHandle)
+                {
+                    SetCapture(windowHandle);
+                }
             }
-        } break;
-
-        case WM_LBUTTONUP:
-        {
-            if(InputData.Flags & InputFlags_Mouse)
+            else if(!InputAnyMouseButtonDown())
             {
-                InputData.Mouse.Buttons[static_cast<usize>(InputMouseButton::Left)].IsDown = false;
                 ReleaseCapture();
             }
         } break;
 
-        case WM_LBUTTONDOWN:
+        case WM_CAPTURECHANGED:
         {
+            // NOTE(saeb): Capture was taken away (or released by us); no button-up is coming, so release every button.
             if(InputData.Flags & InputFlags_Mouse)
             {
-                InputData.Mouse.Buttons[static_cast<usize>(InputMouseButton::Left)].IsDown = true;
-                SetCapture(windowHandle);
+                InputReleaseAllMouseButtons();
             }
         } break;
 
-        case WM_KILLFOCUS:
+        case WM_ACTIVATEAPP:
         {
-            // NOTE(saeb): Lost focus mid-press; the KEY_UP goes to another window, so clear everything to avoid stuck keys and buttons.
-            if(InputData.Flags & InputFlags_Keyboard)
+            // NOTE(saeb): App lost activation mid-press; the key/button-up goes to another app, so release everything.
+            if(wParam == FALSE)
             {
-                for(usize keyIndex = 0; keyIndex < static_cast<usize>(InputKey::Count); ++keyIndex)
+                if(InputData.Flags & InputFlags_Keyboard)
                 {
-                    InputData.Keyboard.Keys[keyIndex].IsDown = false;
+                    InputReleaseAllKeys();
                 }
-            }
 
-            if(InputData.Flags & InputFlags_Mouse)
-            {
-                for(usize mouseButtonIndex = 0; mouseButtonIndex < static_cast<usize>(InputMouseButton::Count); ++mouseButtonIndex)
+                if(InputData.Flags & InputFlags_Mouse)
                 {
-                    InputData.Mouse.Buttons[mouseButtonIndex].IsDown = false;
+                    InputReleaseAllMouseButtons();
                 }
             }
         } break;
