@@ -21,7 +21,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
         if(Win32WindowCreate(&EngineMemory, SV8(u8"Sunbird"), 1280, 720))
         {
-            if(D3D11RendererInit())
+            if(D3D11RendererInit(Win32WindowGetHandle()))
             {
                 if(GameInit(&EngineMemory))
                 {
@@ -40,7 +40,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
                         Frame frameScratch = GetFrame(&EngineMemory, Heap::Upper);
 
-                        D3D11RendererBeginFrame();
+                        uint32 windowClientAreaWidth, windowClientAreaHeight;
+                        WindowGetClientAreaDimensions(&windowClientAreaWidth, &windowClientAreaHeight);
+
+                        D3D11RendererBeginFrame(windowClientAreaWidth, windowClientAreaHeight);
                         GameUpdate(&EngineMemory, Win32TimeTick());
                         D3D11RendererEndFrame();
 
@@ -49,9 +52,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
                     GameShutdown(&EngineMemory);
                 }
-
-                D3D11RendererShutdown();
             }
+
+            // NOTE(saeb): Called even if Init failed; Init can fail halfway, and Shutdown only releases what exists.
+            D3D11RendererShutdown();
 
             Win32WindowShutdown();
         }

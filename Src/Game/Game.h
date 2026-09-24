@@ -10,6 +10,7 @@
 inline void GameConfigure()
 {
     WindowSetFlags(WindowFlags_None);
+    RendererSetFlags(RendererFlags_VSync);
     InputSetFlags(InputFlags_Mouse | InputFlags_Keyboard);
 }
 

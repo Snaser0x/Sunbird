@@ -1,8 +1,15 @@
 #if !defined(SUNBIRD_D3D11RENDERER_H)
 #define SUNBIRD_D3D11RENDERER_H
 
-bool D3D11RendererInit();
-void D3D11RendererBeginFrame();
+#include "Core/Types.h"
+
+#if !defined(WIN32_LEAN_AND_MEAN)
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+bool D3D11RendererInit(HWND windowHandle);
+void D3D11RendererBeginFrame(uint32 width, uint32 height);
 void D3D11RendererEndFrame();
 void D3D11RendererShutdown();
 

@@ -28,7 +28,7 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
     "%~dp0Src\Engine\Renderer\D3D11\D3D11Renderer.cpp" ^
     /Fd"Sunbird.pdb" /Fe"Sunbird.exe" ^
-    /link /nologo /DEBUG Kernel32.lib User32.lib
+    /link /nologo /DEBUG Kernel32.lib User32.lib D3D11.lib DXGI.lib
     if !errorlevel! neq 0 goto error
 ) else (
     echo [Sunbird] Compiling and linking [release]...
@@ -41,7 +41,7 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
     "%~dp0Src\Engine\Renderer\D3D11\D3D11Renderer.cpp" ^
     /Fe"Sunbird.exe" ^
-    /link /nologo Kernel32.lib User32.lib
+    /link /nologo Kernel32.lib User32.lib D3D11.lib DXGI.lib
     if !errorlevel! neq 0 goto error
 )
 

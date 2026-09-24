@@ -39,7 +39,6 @@ struct Input
 {
     InputKeyboard Keyboard;
     InputMouse Mouse;
-
     uint32 Flags;
 };
 static Input InputData;
