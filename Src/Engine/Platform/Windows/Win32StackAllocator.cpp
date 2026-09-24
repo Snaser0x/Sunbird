@@ -9,14 +9,14 @@ bool InitStackAllocator(StackAllocator* allocator, usize size)
 {
     if(!allocator || size == 0)
     {
-        return false;
+        return(false);
     }
 
     // NOTE(saeb): VirtualAlloc() guarantees page-aligned base address.
     allocator->MemoryBlock = (uint8*)VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_READWRITE);
     if(!allocator->MemoryBlock)
     {
-        return false;
+        return(false);
     }
 
     allocator->Base = allocator->MemoryBlock;
@@ -24,7 +24,7 @@ bool InitStackAllocator(StackAllocator* allocator, usize size)
     allocator->LowerHeap = allocator->Base;
     allocator->UpperHeap = allocator->Cap;
 
-    return true;
+    return(true);
 }
 
 void ShutdownStackAllocator(StackAllocator* allocator)

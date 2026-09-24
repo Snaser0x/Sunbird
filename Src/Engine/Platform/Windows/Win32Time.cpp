@@ -12,7 +12,7 @@ struct Time
     LARGE_INTEGER Frequency;
     LARGE_INTEGER LastCounter;
 };
-static Time TimeData = {};
+static Time TimeData;
 
 void Win32TimeInit()
 {
@@ -33,5 +33,5 @@ real64 Win32TimeTick()
         deltaSeconds = MaxDeltaSeconds;
     }
 
-    return deltaSeconds;
+    return(deltaSeconds);
 }

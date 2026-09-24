@@ -1,6 +1,6 @@
 #include "Win32Window.h"
 #include "Win32Time.h"
-#include "Engine/Render/D3D11/D3D11Render.h"
+#include "Engine/Renderer/D3D11/D3D11Renderer.h"
 
 #include "Game/Game.h"
 
@@ -15,18 +15,15 @@ static StackAllocator EngineMemory;
 
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLine, int showCommand)
 {
-    if(InitStackAllocator(&EngineMemory, MIB(64)))
+    if(InitStackAllocator(&EngineMemory, SB_MIB(64)))
     {
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        GameConfigure();
 
-        if(GameInit(&EngineMemory))
+        if(Win32WindowCreate(&EngineMemory, SV8(u8"Sunbird"), 1280, 720))
         {
-            if(Win32WindowCreate(&EngineMemory, SV8(u8"Sunbird"), 1280, 720))
+            if(D3D11RendererInit())
             {
-                uint32 windowClientAreaWidth, windowClientAreaHeight;
-                WindowGetClientAreaDimensions(&windowClientAreaWidth, &windowClientAreaHeight);
-
-                if(D3D11RenderInit())
+                if(GameInit(&EngineMemory))
                 {
                     ShowWindow(Win32WindowGetHandle(), SW_SHOW);
 
@@ -43,20 +40,20 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
                         Frame frameScratch = GetFrame(&EngineMemory, Heap::Upper);
 
-                        D3D11RenderClear();
+                        D3D11RendererBeginFrame();
                         GameUpdate(&EngineMemory, Win32TimeTick());
-                        D3D11RenderPresent();
+                        D3D11RendererEndFrame();
 
                         ReleaseFrame(&EngineMemory, frameScratch);
                     }
 
-                    D3D11RenderShutdown();
+                    GameShutdown(&EngineMemory);
                 }
 
-                Win32WindowShutdown();
+                D3D11RendererShutdown();
             }
 
-            GameShutdown(&EngineMemory);
+            Win32WindowShutdown();
         }
 
         ShutdownStackAllocator(&EngineMemory);

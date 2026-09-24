@@ -11,7 +11,7 @@ struct Window
     bool CloseRequested;
     uint32 Flags;
 };
-static Window WindowData = {};
+static Window WindowData;
 
 static LRESULT CALLBACK Win32WindowProcedure(HWND windowHandle, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -85,7 +85,7 @@ bool Win32WindowCreate(StackAllocator* allocator, StringView8 title, uint32 widt
     else
     {
         RECT windowClientArea = { 0, 0, (LONG)width, (LONG)height };
-        AdjustWindowRectExForDpi(&windowClientArea, (DWORD)windowStyle, FALSE, 0, GetDpiForSystem());
+        AdjustWindowRectEx(&windowClientArea, (DWORD)windowStyle, FALSE, 0);
 
         windowWidth = (uint32)(windowClientArea.right - windowClientArea.left);
         windowHeight = (uint32)(windowClientArea.bottom - windowClientArea.top);
@@ -156,7 +156,7 @@ void Win32WindowShutdown()
 
 HWND Win32WindowGetHandle()
 {
-    return WindowData.Handle;
+    return(WindowData.Handle);
 }
 
 void WindowSetFlags(uint32 windowFlags)
@@ -172,5 +172,5 @@ void WindowGetClientAreaDimensions(uint32* width, uint32* height)
 
 bool WindowGetMinimized()
 {
-    return WindowData.Minimized;
+    return(WindowData.Minimized);
 }

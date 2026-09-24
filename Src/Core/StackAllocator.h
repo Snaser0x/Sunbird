@@ -3,8 +3,8 @@
 
 #include "Types.h"
 
-#define ALIGNUP(address, alignmentBytes) ((((usize)(address)) + ((usize)(alignmentBytes)) - 1) & (~(((usize)(alignmentBytes)) - 1)))
-#define ALIGNDOWN(address, alignmentBytes) ((((usize)(address))) & (~(((usize)(alignmentBytes)) - 1)))
+#define SB_ALIGNUP(address, alignmentBytes) ((((usize)(address)) + ((usize)(alignmentBytes)) - 1) & (~(((usize)(alignmentBytes)) - 1)))
+#define SB_ALIGNDOWN(address, alignmentBytes) ((((usize)(address))) & (~(((usize)(alignmentBytes)) - 1)))
 
 struct StackAllocator
 {
@@ -34,13 +34,13 @@ inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, usize al
 {
     if(!allocator || size == 0 || alignment == 0)
     {
-        return nullptr;
+        return(nullptr);
     }
 
     // Validate alignment is power of two.
     if((alignment & (alignment - 1)) != 0)
     {
-        return nullptr;
+        return(nullptr);
     }
 
     usize lower = (usize)allocator->LowerHeap;
@@ -52,14 +52,14 @@ inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, usize al
         // From upper heap (down).
         if(size > upper - lower)
         {
-            return nullptr; // Out of memory
+            return(nullptr); // Out of memory
         }
 
         // NOTE(saeb): Growing down, so align down; aligning up would move back into memory already handed out.
-        usize aligned = ALIGNDOWN(upper - size, alignment);
+        usize aligned = SB_ALIGNDOWN(upper - size, alignment);
         if(aligned < lower)
         {
-            return nullptr; // Alignment padding collides with lower heap
+            return(nullptr); // Alignment padding collides with lower heap
         }
 
         allocator->UpperHeap = (uint8*)aligned;
@@ -68,37 +68,37 @@ inline void* Allocate(StackAllocator* allocator, Heap heap, usize size, usize al
     else
     {
         // From lower heap (up).
-        usize aligned = ALIGNUP(lower, alignment);
+        usize aligned = SB_ALIGNUP(lower, alignment);
         if(aligned > upper || size > upper - aligned)
         {
-            return nullptr; // Out of memory or collision
+            return(nullptr); // Out of memory or collision
         }
 
         allocator->LowerHeap = (uint8*)(aligned + size);
         memory = (void*)aligned;
     }
 
-    return memory;
+    return(memory);
 }
 
 inline usize GetAvailableMemory(StackAllocator* allocator)
 {
     if(!allocator)
     {
-        return 0;
+        return(0);
     }
 
-    return allocator->UpperHeap - allocator->LowerHeap;
+    return(allocator->UpperHeap - allocator->LowerHeap);
 }
 
 inline usize GetUsedMemory(StackAllocator* allocator)
 {
     if(!allocator)
     {
-        return 0;
+        return(0);
     }
 
-    return (allocator->LowerHeap - allocator->Base) + (allocator->Cap - allocator->UpperHeap);
+    return((allocator->LowerHeap - allocator->Base) + (allocator->Cap - allocator->UpperHeap));
 }
 
 inline Frame GetFrame(StackAllocator* allocator, Heap heap)
@@ -107,7 +107,7 @@ inline Frame GetFrame(StackAllocator* allocator, Heap heap)
     frame.Mark = (heap == Heap::Upper) ? allocator->UpperHeap : allocator->LowerHeap;
     frame.Heap = heap;
 
-    return frame;
+    return(frame);
 }
 
 inline void ReleaseFrame(StackAllocator* allocator, Frame frame)

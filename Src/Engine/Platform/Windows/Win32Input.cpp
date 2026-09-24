@@ -42,7 +42,7 @@ struct Input
 
     uint32 Flags;
 };
-static Input InputData = {};
+static Input InputData;
 
 static void InputSetButtonState(InputButtonState* button, bool isDown)
 {
