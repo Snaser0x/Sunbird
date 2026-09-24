@@ -21,7 +21,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
         if(Win32WindowCreate(&EngineMemory, SV8(u8"Sunbird"), 1280, 720))
         {
-            if(D3D11RendererInit(Win32WindowGetHandle()))
+            if(D3D11RendererInit(&EngineMemory, Win32WindowGetHandle()))
             {
                 if(GameInit(&EngineMemory))
                 {
