@@ -4,6 +4,7 @@
 #include "Core/StackAllocator.h"
 #include "Engine/Platform/Window.h"
 #include "Engine/Platform/Input.h"
+#include "Engine/Platform/File.h"
 #include "Engine/Renderer/Renderer.h"
 
 // NOTE(saeb): Only set flags here, never acquire resources (nothing tears this down).
