@@ -1,6 +1,7 @@
 #include "Win32Window.h"
 #include "Win32Time.h"
 #include "Engine/Renderer/D3D11/D3D11Renderer.h"
+#include "Engine/Assets/Asset.h"
 
 #include "Game/Game.h"
 
@@ -21,7 +22,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLi
 
         if(Win32WindowCreate(&EngineMemory, SV8(u8"Sunbird"), 1280, 720))
         {
-            if(D3D11RendererInit(&EngineMemory, Win32WindowGetHandle()))
+            if(D3D11RendererInit(&EngineMemory, Win32WindowGetHandle()) && AssetLoadDefaultPipeline(&EngineMemory, SV8(u8"Data/Engine/Quad.sba")) == AssetLoadResult::Ok)
             {
                 if(GameInit(&EngineMemory))
                 {

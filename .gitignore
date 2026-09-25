@@ -1,5 +1,7 @@
 # Directories
 Build/
+Data/*
+!Data/Engine/
 
 # Emacs
 *~

@@ -61,6 +61,12 @@ struct String8Decoded
     usize Length;
 };
 
+struct String16Decoded
+{
+    uint32 Codepoint;
+    usize Length;
+};
+
 inline String8Decoded String8DecodeNext(StringView8 view, usize index)
 {
     // NOTE(saeb): Invalid input decodes to U+FFFD and consumes one byte, so a bad byte never swallows the valid bytes after it.
@@ -127,6 +133,61 @@ inline String8Decoded String8DecodeNext(StringView8 view, usize index)
     return(String8Decoded{ codepoint, length });
 }
 
+inline String16Decoded String16DecodeNext(StringView16 view, usize index)
+{
+    // NOTE(saeb): An unpaired surrogate decodes to U+FFFD and consumes one unit, matching String8DecodeNext; Windows paths and filenames can legally contain them.
+    const uint32 Replacement = 0xFFFD;
+    char16 lead = view.Data[index];
+
+    // Not a surrogate (BMP).
+    if(lead < 0xD800 || lead > 0xDFFF)
+    {
+        return(String16Decoded{ lead, 1 });
+    }
+
+    // Low surrogate without a high one before it.
+    if(lead >= 0xDC00)
+    {
+        return(String16Decoded{ Replacement, 1 });
+    }
+
+    // High surrogate at the end of the view, or not followed by a low one.
+    if(index + 1 >= view.Length)
+    {
+        return(String16Decoded{ Replacement, 1 });
+    }
+
+    char16 trail = view.Data[index + 1];
+    if(trail < 0xDC00 || trail > 0xDFFF)
+    {
+        return(String16Decoded{ Replacement, 1 });
+    }
+
+    uint32 codepoint = 0x10000 + (((uint32)lead - 0xD800) << 10) + ((uint32)trail - 0xDC00);
+
+    return(String16Decoded{ codepoint, 2 });
+}
+
+inline usize String8EncodedLength(uint32 codepoint)
+{
+    if(codepoint < 0x80)
+    {
+        return(1);
+    }
+
+    if(codepoint < 0x800)
+    {
+        return(2);
+    }
+
+    if(codepoint < 0x10000)
+    {
+        return(3);
+    }
+
+    return(4);
+}
+
 inline usize SV8ToSV16Length(StringView8 view)
 {
     usize length = 0;
@@ -137,6 +198,21 @@ inline usize SV8ToSV16Length(StringView8 view)
 
         // Above the BMP needs a surrogate pair.
         length += (decoded.Codepoint >= 0x10000) ? 2 : 1;
+        i += decoded.Length;
+    }
+
+    return(length);
+}
+
+inline usize SV16ToSV8Length(StringView16 view)
+{
+    usize length = 0;
+
+    for(usize i = 0; i < view.Length;)
+    {
+        String16Decoded decoded = String16DecodeNext(view, i);
+
+        length += String8EncodedLength(decoded.Codepoint);
         i += decoded.Length;
     }
 
@@ -181,6 +257,58 @@ inline StringView16 SV8ToSV16(StackAllocator* allocator, StringView8 view)
     buffer[bufferIndex] = u'\0';
     
     return(StringView16{ buffer, bufferIndex });
+}
+
+inline StringView8 SV16ToSV8(StackAllocator* allocator, StringView16 view)
+{
+    if(!allocator)
+    {
+        return(StringView8{ nullptr, 0 });
+    }
+
+    usize bufferCapacity = SV16ToSV8Length(view) + 1;
+    char8* buffer = (char8*)Allocate(allocator, Heap::Upper, bufferCapacity * sizeof(char8), alignof(char8));
+    if(!buffer)
+    {
+        return(StringView8{ nullptr, 0 });
+    }
+
+    usize bufferIndex = 0;
+
+    for(usize i = 0; i < view.Length;)
+    {
+        String16Decoded decoded = String16DecodeNext(view, i);
+        uint32 codepoint = decoded.Codepoint;
+
+        if(codepoint < 0x80)
+        {
+            buffer[bufferIndex++] = (char8)codepoint;
+        }
+        else if(codepoint < 0x800)
+        {
+            buffer[bufferIndex++] = (char8)(0xC0 | (codepoint >> 6));
+            buffer[bufferIndex++] = (char8)(0x80 | (codepoint & 0x3F));
+        }
+        else if(codepoint < 0x10000)
+        {
+            buffer[bufferIndex++] = (char8)(0xE0 | (codepoint >> 12));
+            buffer[bufferIndex++] = (char8)(0x80 | ((codepoint >> 6) & 0x3F));
+            buffer[bufferIndex++] = (char8)(0x80 | (codepoint & 0x3F));
+        }
+        else
+        {
+            buffer[bufferIndex++] = (char8)(0xF0 | (codepoint >> 18));
+            buffer[bufferIndex++] = (char8)(0x80 | ((codepoint >> 12) & 0x3F));
+            buffer[bufferIndex++] = (char8)(0x80 | ((codepoint >> 6) & 0x3F));
+            buffer[bufferIndex++] = (char8)(0x80 | (codepoint & 0x3F));
+        }
+
+        i += decoded.Length;
+    }
+
+    buffer[bufferIndex] = u8'\0';
+
+    return(StringView8{ buffer, bufferIndex });
 }
 
 inline String8 String8FromView(StackAllocator* allocator, StringView8 view)

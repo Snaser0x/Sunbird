@@ -7,7 +7,6 @@
 #include <d3d11.h>
 #include <d3d11_1.h>
 #include <dxgi1_6.h>
-#include <d3dcompiler.h>
 
 // NOTE(saeb): 16384 quads * 4 = 65536 vertices, the most a 16-bit index can address.
 #define SB_MAX_QUADS 16384
@@ -104,77 +103,6 @@ static void D3D11EndEvent()
     {
         RendererData.Annotation->EndEvent();
     }
-}
-
-static const char QuadShaderSource[] = R"(
-cbuffer QuadConstants : register(b0)
-{
-    float2 ScreenSize;
-    float2 Padding;
-};
-
-Texture2D QuadTexture : register(t0);
-SamplerState QuadSampler : register(s0);
-
-struct VSInput
-{
-    float2 Position : POSITION;
-    float2 UV : TEXCOORD;
-    float4 Color : COLOR;
-};
-
-struct PSInput
-{
-    float4 Position : SV_Position;
-    float2 UV : TEXCOORD;
-    float4 Color : COLOR;
-};
-
-PSInput VSMain(VSInput input)
-{
-    PSInput output;
-
-    // Pixels (top-left origin, y down) -> clip space (center origin, y up).
-    float2 clip = (input.Position / ScreenSize) * float2(2.0, -2.0) + float2(-1.0, 1.0);
-    output.Position = float4(clip, 0.0, 1.0);
-    output.UV = input.UV;
-    output.Color = input.Color;
-
-    return output;
-}
-
-float4 PSMain(PSInput input) : SV_Target
-{
-    return QuadTexture.Sample(QuadSampler, input.UV) * input.Color;
-}
-)";
-
-static ID3DBlob* D3D11CompileShader(const char* source, usize sourceSize, const char* entryPoint, const char* target)
-{
-    UINT compileFlags = D3DCOMPILE_ENABLE_STRICTNESS;
-#if defined(DEBUG) || defined(_DEBUG)
-    compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION; // Readable in RenderDoc / PIX
-#else
-    compileFlags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
-#endif
-
-    ID3DBlob* bytecode = nullptr;
-    ID3DBlob* errors = nullptr;
-    HRESULT result = D3DCompile(source, sourceSize, nullptr, nullptr, nullptr, entryPoint, target, compileFlags, 0, &bytecode, &errors);
-
-    // NOTE(saeb): Errors and warnings both come back here, with line numbers.
-    if(errors)
-    {
-        OutputDebugStringA((const char*)errors->GetBufferPointer());
-        errors->Release();
-    }
-
-    if(FAILED(result))
-    {
-        return(nullptr);
-    }
-
-    return(bytecode);
 }
 
 static bool D3D11CreateTexture(uint32 width, uint32 height, const void* pixels, ID3D11ShaderResourceView** view)
@@ -486,38 +414,7 @@ bool D3D11RendererInit(StackAllocator* allocator, HWND windowHandle)
         return(false);
     }
 
-    ID3DBlob* vertexShaderBytecode = D3D11CompileShader(QuadShaderSource, sizeof(QuadShaderSource) - 1, "VSMain", "vs_5_0");
-    ID3DBlob* pixelShaderBytecode = D3D11CompileShader(QuadShaderSource, sizeof(QuadShaderSource) - 1, "PSMain", "ps_5_0");
-
-    // NOTE(saeb): The input layout is validated against the vertex shader's input signature, so it needs the VS bytecode.
-    D3D11_INPUT_ELEMENT_DESC inputElements[] =
-        {
-            { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadVertex, X), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadVertex, U), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(QuadVertex, R), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        };
-
-    bool shadersCreated = vertexShaderBytecode && pixelShaderBytecode &&
-        SUCCEEDED(RendererData.Device->CreateVertexShader(vertexShaderBytecode->GetBufferPointer(), vertexShaderBytecode->GetBufferSize(), nullptr, &RendererData.QuadVertexShader)) &&
-        SUCCEEDED(RendererData.Device->CreatePixelShader(pixelShaderBytecode->GetBufferPointer(), pixelShaderBytecode->GetBufferSize(), nullptr, &RendererData.Pipelines[0].PixelShader)) &&
-        SUCCEEDED(RendererData.Device->CreateInputLayout(inputElements, SB_ARRAYCOUNT(inputElements), vertexShaderBytecode->GetBufferPointer(), vertexShaderBytecode->GetBufferSize(), &RendererData.QuadInputLayout));
-
-    // NOTE(saeb): The bytecode is only needed for creation.
-    if(vertexShaderBytecode)
-    {
-        vertexShaderBytecode->Release();
-    }
-
-    if(pixelShaderBytecode)
-    {
-        pixelShaderBytecode->Release();
-    }
-
-    if(!shadersCreated)
-    {
-        return(false);
-    }
-
+    // NOTE(saeb): Slot 0 is reserved for the default pipeline, which RendererSetDefaultPipeline fills from the cooked shader; created pipelines start at 1.
     RendererData.PipelineCount = 1;
 
     D3D11_BUFFER_DESC constantBufferDesc = {};
@@ -692,7 +589,8 @@ void D3D11RendererBeginFrame(uint32 width, uint32 height)
 
 void D3D11RendererEndFrame()
 {
-    if(RendererData.RenderTargetView && RendererData.QuadCount > 0)
+    // NOTE(saeb): The input layout is the last object RendererSetDefaultPipeline creates; without it there's nothing to draw quads with.
+    if(RendererData.RenderTargetView && RendererData.QuadInputLayout && RendererData.QuadCount > 0)
     {
         D3D11BeginEvent(L"Quads");
         D3D11FlushQuads();
@@ -877,4 +775,70 @@ RendererTexture RendererCreateTexture(uint32 width, uint32 height, const uint8* 
     }
 
     return(RendererData.TextureCount++);
+}
+
+RendererPipeline RendererCreatePipeline(const uint8* pixelBytecode, usize size)
+{
+    // NOTE(saeb): Not initialized, table full, or creation failed: return the default pipeline, so the quad still draws instead of crashing.
+    if(!RendererData.Device || !pixelBytecode || size == 0 || RendererData.PipelineCount >= SB_MAX_PIPELINES)
+    {
+        return(0);
+    }
+
+    // NOTE(saeb): D3D11 checks the bytecode's own checksum here; with the debug layer set to break on errors, damaged bytecode stops in the debugger.
+    ID3D11PixelShader** pixelShader = &RendererData.Pipelines[RendererData.PipelineCount].PixelShader;
+    if(FAILED(RendererData.Device->CreatePixelShader(pixelBytecode, size, nullptr, pixelShader)))
+    {
+        *pixelShader = nullptr;
+        return(0);
+    }
+
+    return(RendererData.PipelineCount++);
+}
+
+bool RendererSetDefaultPipeline(const uint8* vertexBytecode, usize vertexSize, const uint8* pixelBytecode, usize pixelSize)
+{
+    // NOTE(saeb): Once only; replacing shaders at runtime (hot reload) would also need to release the old ones.
+    if(!RendererData.Device || RendererData.QuadVertexShader || !vertexBytecode || vertexSize == 0 || !pixelBytecode || pixelSize == 0)
+    {
+        return(false);
+    }
+
+    // NOTE(saeb): The input layout is validated against the vertex shader's input signature, so it needs the VS bytecode.
+    D3D11_INPUT_ELEMENT_DESC inputElements[] =
+        {
+            { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadVertex, X), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(QuadVertex, U), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(QuadVertex, R), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        };
+
+    bool created = SUCCEEDED(RendererData.Device->CreateVertexShader(vertexBytecode, vertexSize, nullptr, &RendererData.QuadVertexShader)) &&
+        SUCCEEDED(RendererData.Device->CreatePixelShader(pixelBytecode, pixelSize, nullptr, &RendererData.Pipelines[0].PixelShader)) &&
+        SUCCEEDED(RendererData.Device->CreateInputLayout(inputElements, SB_ARRAYCOUNT(inputElements), vertexBytecode, vertexSize, &RendererData.QuadInputLayout));
+
+    if(!created)
+    {
+        // NOTE(saeb): All or nothing; EndFrame treats the input layout as "ready", so never leave half a set behind.
+        if(RendererData.QuadVertexShader)
+        {
+            RendererData.QuadVertexShader->Release();
+            RendererData.QuadVertexShader = nullptr;
+        }
+
+        if(RendererData.Pipelines[0].PixelShader)
+        {
+            RendererData.Pipelines[0].PixelShader->Release();
+            RendererData.Pipelines[0].PixelShader = nullptr;
+        }
+
+        if(RendererData.QuadInputLayout)
+        {
+            RendererData.QuadInputLayout->Release();
+            RendererData.QuadInputLayout = nullptr;
+        }
+
+        return(false);
+    }
+
+    return(true);
 }

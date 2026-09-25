@@ -19,7 +19,7 @@ pushd "!BUILD_DIR!"
 
 if "!BUILD!"=="debug" (
     echo [Sunbird] Compiling and linking [debug]...
-    cl /nologo /std:c++20 /permissive- /MTd /Od /Zi /utf-8^
+    cl /nologo /std:c++20 /permissive- /MTd /Od /Zi /utf-8 ^
     /I "%~dp0Src" ^
     "%~dp0Src\Engine\Platform\Windows\Win32Main.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
@@ -28,8 +28,21 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32File.cpp" ^
     "%~dp0Src\Engine\Renderer\D3D11\D3D11Renderer.cpp" ^
+    "%~dp0Src\Engine\Assets\Asset.cpp" ^
     /Fd"Sunbird.pdb" /Fe"Sunbird.exe" ^
-    /link /nologo /DEBUG Kernel32.lib User32.lib D3D11.lib DXGI.lib DXGUID.lib D3DCompiler.lib
+    /link /nologo /DEBUG Kernel32.lib User32.lib D3D11.lib DXGI.lib DXGUID.lib
+    if !errorlevel! neq 0 goto error
+
+    echo [Sunbird] Compiling and linking cooker [debug]...
+    cl /nologo /std:c++20 /permissive- /MTd /Od /Zi /utf-8 ^
+    /I "%~dp0Src" /I "%~dp0External" ^
+    "%~dp0Src\Cooker\CookerMain.cpp" ^
+    "%~dp0Src\Cooker\CookTexture.cpp" ^
+    "%~dp0Src\Cooker\CookShader.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32File.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
+    /Fd"SunbirdCooker.pdb" /Fe"SunbirdCooker.exe" ^
+    /link /nologo /DEBUG Kernel32.lib D3DCompiler.lib
     if !errorlevel! neq 0 goto error
 ) else (
     echo [Sunbird] Compiling and linking [release]...
@@ -42,10 +55,30 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32File.cpp" ^
     "%~dp0Src\Engine\Renderer\D3D11\D3D11Renderer.cpp" ^
+    "%~dp0Src\Engine\Assets\Asset.cpp" ^
     /Fe"Sunbird.exe" ^
-    /link /nologo Kernel32.lib User32.lib D3D11.lib DXGI.lib DXGUID.lib D3DCompiler.lib
+    /link /nologo Kernel32.lib User32.lib D3D11.lib DXGI.lib DXGUID.lib
+    if !errorlevel! neq 0 goto error
+
+    echo [Sunbird] Compiling and linking cooker [release]...
+    cl /nologo /std:c++20 /permissive- /MT /O2 /utf-8^
+    /I "%~dp0Src" /I "%~dp0External" ^
+    "%~dp0Src\Cooker\CookerMain.cpp" ^
+    "%~dp0Src\Cooker\CookTexture.cpp" ^
+    "%~dp0Src\Cooker\CookShader.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32File.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32StackAllocator.cpp" ^
+    /Fe"SunbirdCooker.exe" ^
+    /link /nologo Kernel32.lib D3DCompiler.lib
     if !errorlevel! neq 0 goto error
 )
+
+set COOK_FLAGS=
+if "!BUILD!"=="debug" set COOK_FLAGS=--debug
+
+echo [Sunbird] Cooking assets [!BUILD!]...
+"!BUILD_DIR!\SunbirdCooker.exe" "%~dp0Data" "!BUILD_DIR!\Data" !COOK_FLAGS!
+if !errorlevel! neq 0 goto error
 
 echo.
 echo [Sunbird] Build succeeded.

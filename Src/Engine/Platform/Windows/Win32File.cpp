@@ -1,5 +1,7 @@
 #include "Engine/Platform/File.h"
 
+#include "Core/Utility.h"
+
 #if !defined(WIN32_LEAN_AND_MEAN)
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -197,4 +199,147 @@ FileReadResult FileRead(StackAllocator* allocator, Heap heap, StringView8 path, 
     contents->Size = size;
 
     return(FileReadResult::Ok);
+}
+
+// NOTE(saeb): Creates every directory along path: "C:\A\B\File.sba" -> "C:\A", then "C:\A\B". Failures are ignored; the root, "\\something" and existing folders all fail harmlessly, and a folder that really couldn't be created makes the CreateFileW after this fail instead.
+static void Win32FileCreateParentDirectories(char16* path)
+{
+    for(usize index = 1; path[index] != u'\0'; ++index)
+    {
+        if(Win32FileIsSeparator(path[index]))
+        {
+            char16 separator = path[index];
+            path[index] = u'\0';
+            CreateDirectoryW((LPCWSTR)path, nullptr);
+            path[index] = separator;
+        }
+    }
+}
+
+static FileWriteResult Win32FileWriteResultFromError(DWORD error)
+{
+    switch(error)
+    {
+        case ERROR_PATH_NOT_FOUND:
+        case ERROR_INVALID_NAME:
+        case ERROR_FILENAME_EXCED_RANGE:
+        {
+            return(FileWriteResult::InvalidPath);
+        }
+
+        case ERROR_ACCESS_DENIED:
+        case ERROR_SHARING_VIOLATION:
+        {
+            return(FileWriteResult::AccessDenied);
+        }
+
+        default:
+        {
+            return(FileWriteResult::WriteFailed);
+        }
+    }
+}
+
+// NOTE(saeb): All allocations here are Upper heap scratch; FileWrite releases them in one place, so every early return below is safe.
+static FileWriteResult Win32FileWrite(StackAllocator* allocator, StringView8 path, const void* data, usize size)
+{
+    if(!data && size > 0)
+    {
+        return(FileWriteResult::WriteFailed);
+    }
+
+    const char16* fullPath = nullptr;
+    FileReadResult pathResult = Win32FileBuildPath(allocator, path, &fullPath);
+    if(pathResult == FileReadResult::OutOfMemory)
+    {
+        return(FileWriteResult::OutOfMemory);
+    }
+
+    if(pathResult != FileReadResult::Ok)
+    {
+        return(FileWriteResult::InvalidPath);
+    }
+
+    usize fullPathLength = 0;
+    while(fullPath[fullPathLength] != u'\0')
+    {
+        ++fullPathLength;
+    }
+
+    static const char16 TempSuffix[] = u".tmp";
+    usize suffixLength = SB_ARRAYCOUNT(TempSuffix) - 1;
+
+    char16* tempPath = (char16*)Allocate(allocator, Heap::Upper, (fullPathLength + suffixLength + 1) * sizeof(char16), alignof(char16));
+    if(!tempPath)
+    {
+        return(FileWriteResult::OutOfMemory);
+    }
+
+    for(usize index = 0; index < fullPathLength; ++index)
+    {
+        tempPath[index] = fullPath[index];
+    }
+
+    for(usize index = 0; index < suffixLength; ++index)
+    {
+        tempPath[fullPathLength + index] = TempSuffix[index];
+    }
+
+    tempPath[fullPathLength + suffixLength] = u'\0';
+
+    // NOTE(saeb): The temp file sits next to the target, so both share the same parent directories.
+    Win32FileCreateParentDirectories(tempPath);
+
+    // NOTE(saeb): No sharing; nobody should read a half-written file.
+    HANDLE fileHandle = CreateFileW((LPCWSTR)tempPath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    if(fileHandle == INVALID_HANDLE_VALUE)
+    {
+        return(Win32FileWriteResultFromError(GetLastError()));
+    }
+
+    // NOTE(saeb): WriteFile takes a 32-bit count, so write in chunks; anything short of the full chunk is a failure (disk full, ...).
+    const uint8* bytes = (const uint8*)data;
+    usize totalWritten = 0;
+    bool written = true;
+    while(totalWritten < size)
+    {
+        usize remaining = size - totalWritten;
+        DWORD chunkSize = (remaining > 0x40000000) ? 0x40000000 : (DWORD)remaining;
+        DWORD bytesWritten = 0;
+
+        if(!WriteFile(fileHandle, bytes + totalWritten, chunkSize, &bytesWritten, nullptr) || bytesWritten != chunkSize)
+        {
+            written = false;
+            break;
+        }
+
+        totalWritten += bytesWritten;
+    }
+
+    CloseHandle(fileHandle);
+
+    if(!written)
+    {
+        DeleteFileW((LPCWSTR)tempPath);
+        return(FileWriteResult::WriteFailed);
+    }
+
+    // NOTE(saeb): The rename replaces the target in one step; readers see the old file or the new one, never a mix. Fails with AccessDenied while anyone has the target open; the target is left untouched, so retrying is safe.
+    if(!MoveFileExW((LPCWSTR)tempPath, (LPCWSTR)fullPath, MOVEFILE_REPLACE_EXISTING))
+    {
+        DWORD moveError = GetLastError(); // Before DeleteFileW, which would overwrite it
+        DeleteFileW((LPCWSTR)tempPath);
+        return(Win32FileWriteResultFromError(moveError));
+    }
+
+    return(FileWriteResult::Ok);
+}
+
+FileWriteResult FileWrite(StackAllocator* allocator, StringView8 path, const void* data, usize size)
+{
+    Frame pathScratch = GetFrame(allocator, Heap::Upper);
+    FileWriteResult result = Win32FileWrite(allocator, path, data, size);
+    ReleaseFrame(allocator, pathScratch);
+
+    return(result);
 }
