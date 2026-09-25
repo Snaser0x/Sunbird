@@ -40,6 +40,7 @@ if "!BUILD!"=="debug" (
     "%~dp0Src\Engine\Platform\Windows\Win32Window.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32Input.cpp" ^
     "%~dp0Src\Engine\Platform\Windows\Win32Time.cpp" ^
+    "%~dp0Src\Engine\Platform\Windows\Win32File.cpp" ^
     "%~dp0Src\Engine\Renderer\D3D11\D3D11Renderer.cpp" ^
     /Fe"Sunbird.exe" ^
     /link /nologo Kernel32.lib User32.lib D3D11.lib DXGI.lib D3DCompiler.lib
