@@ -55,7 +55,7 @@ struct Renderer
     ID3D11Buffer* IndexBuffer;
     RendererQuad* Quads;
     uint32 QuadCount;
-    QuadBatch* Batches; // Worst case is one batch per quad
+    QuadBatch* Batches;
     ID3D11VertexShader* QuadVertexShader;
     ID3D11InputLayout* QuadInputLayout;
     ID3D11Buffer* QuadConstantBuffer;
@@ -142,6 +142,40 @@ static ID3DBlob* D3D11CompileShader(const char* source, usize sourceSize, const 
     return(bytecode);
 }
 
+static bool D3D11CreateTexture(uint32 width, uint32 height, const void* pixels, ID3D11ShaderResourceView** view)
+{
+    // NOTE(saeb): Validate first; with the debug layer set to break on errors, a bad description would stop the program instead of just failing.
+    if(!pixels || width == 0 || height == 0 || width > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION || height > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION)
+    {
+        return(false);
+    }
+
+    D3D11_TEXTURE2D_DESC textureDesc = {};
+    textureDesc.Width = width;
+    textureDesc.Height = height;
+    textureDesc.MipLevels = 1;
+    textureDesc.ArraySize = 1;
+    textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    textureDesc.SampleDesc.Count = 1;
+    textureDesc.Usage = D3D11_USAGE_IMMUTABLE; // Contents given at creation, never written again
+    textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA textureData = {};
+    textureData.pSysMem = pixels;
+    textureData.SysMemPitch = width * 4; // Bytes per row
+
+    ID3D11Texture2D* texture = nullptr;
+    if(FAILED(RendererData.Device->CreateTexture2D(&textureDesc, &textureData, &texture)))
+    {
+        return(false);
+    }
+
+    HRESULT viewResult = RendererData.Device->CreateShaderResourceView(texture, nullptr, view);
+    texture->Release(); // The view holds its own reference to the texture
+
+    return(SUCCEEDED(viewResult));
+}
+
 static void D3D11FlushQuads()
 {
     D3D11_MAPPED_SUBRESOURCE mapped;
@@ -175,12 +209,17 @@ static void D3D11FlushQuads()
         real32 x1 = quad->X + quad->Width;
         real32 y1 = quad->Y + quad->Height;
 
+        // NOTE(saeb): The game passes straight colors; premultiply here so the blend state's ONE is correct.
+        real32 r = quad->R * quad->A;
+        real32 g = quad->G * quad->A;
+        real32 b = quad->B * quad->A;
+
         // NOTE(saeb): Mapped memory is write-combined; write each vertex whole, front to back, never read it back.
         QuadVertex* quadVertices = vertices + (quadIndex * 4);
-        quadVertices[0] = { x0, y0, quad->U0, quad->V0, quad->R, quad->G, quad->B, quad->A }; // Top-left
-        quadVertices[1] = { x1, y0, quad->U1, quad->V0, quad->R, quad->G, quad->B, quad->A }; // Top-right
-        quadVertices[2] = { x0, y1, quad->U0, quad->V1, quad->R, quad->G, quad->B, quad->A }; // Bottom-left
-        quadVertices[3] = { x1, y1, quad->U1, quad->V1, quad->R, quad->G, quad->B, quad->A }; // Bottom-right
+        quadVertices[0] = { x0, y0, quad->U0, quad->V0, r, g, b, quad->A }; // Top-left
+        quadVertices[1] = { x1, y0, quad->U1, quad->V0, r, g, b, quad->A }; // Top-right
+        quadVertices[2] = { x0, y1, quad->U0, quad->V1, r, g, b, quad->A }; // Bottom-left
+        quadVertices[3] = { x1, y1, quad->U1, quad->V1, r, g, b, quad->A }; // Bottom-right
     }
 
     RendererData.Context->Unmap(RendererData.VertexBuffer, 0);
@@ -453,10 +492,10 @@ bool D3D11RendererInit(StackAllocator* allocator, HWND windowHandle)
         return(false);
     }
 
-    // NOTE(saeb): Standard "over" blending: color = src * srcAlpha + dst * (1 - srcAlpha).
+    // NOTE(saeb): Premultiplied "over": color = src + dst * (1 - srcAlpha); src.rgb already carries its alpha.
     D3D11_BLEND_DESC blendDesc = {};
     blendDesc.RenderTarget[0].BlendEnable = TRUE;
-    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
     blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
     blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
     blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
@@ -492,38 +531,14 @@ bool D3D11RendererInit(StackAllocator* allocator, HWND windowHandle)
         return(false);
     }
 
+    // NOTE(saeb): Handle 0 is the built-in white texture; plain rects sample it, and textures that fail to create fall back to it.
     uint32 whitePixel = 0xFFFFFFFF;
-
-    D3D11_TEXTURE2D_DESC whiteTextureDesc = {};
-    whiteTextureDesc.Width = 1;
-    whiteTextureDesc.Height = 1;
-    whiteTextureDesc.MipLevels = 1;
-    whiteTextureDesc.ArraySize = 1;
-    whiteTextureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    whiteTextureDesc.SampleDesc.Count = 1;
-    whiteTextureDesc.Usage = D3D11_USAGE_IMMUTABLE;
-    whiteTextureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-    D3D11_SUBRESOURCE_DATA whiteTextureData = {};
-    whiteTextureData.pSysMem = &whitePixel;
-    whiteTextureData.SysMemPitch = sizeof(whitePixel); // Bytes per row; required for textures
-
-    ID3D11Texture2D* whiteTexture = nullptr;
-    if(FAILED(RendererData.Device->CreateTexture2D(&whiteTextureDesc, &whiteTextureData, &whiteTexture)))
+    if(!D3D11CreateTexture(1, 1, (const uint8*)&whitePixel, &RendererData.Textures[0]))
     {
         return(false);
     }
-
-    HRESULT whiteViewResult = RendererData.Device->CreateShaderResourceView(whiteTexture, nullptr, &RendererData.Textures[0]);
-    whiteTexture->Release(); // The view holds its own reference to the texture
-
-    if(FAILED(whiteViewResult))
-    {
-        return(false);
-    }
-
     RendererData.TextureCount = 1;
-    
+
     // NOTE(saeb): Tearing is what lets VSync-off actually present immediately on flip-model swap chains (needs Windows 10 + driver support).
     IDXGIFactory5* factory5 = nullptr;
     if(SUCCEEDED(RendererData.Factory->QueryInterface(IID_PPV_ARGS(&factory5))))
@@ -791,4 +806,20 @@ void RendererPushQuad(const RendererQuad* quad)
     }
 
     RendererData.Quads[RendererData.QuadCount++] = *quad;
+}
+
+RendererTexture RendererCreateTexture(uint32 width, uint32 height, const void* pixels)
+{
+    // NOTE(saeb): Not initialized, table full, or creation failed: return the white texture, so the quad still draws (white) instead of crashing.
+    if(!RendererData.Device || RendererData.TextureCount >= SB_MAX_TEXTURES)
+    {
+        return(0);
+    }
+
+    if(!D3D11CreateTexture(width, height, pixels, &RendererData.Textures[RendererData.TextureCount]))
+    {
+        return(0);
+    }
+
+    return(RendererData.TextureCount++);
 }

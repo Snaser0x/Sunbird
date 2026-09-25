@@ -24,4 +24,7 @@ struct RendererQuad
 void RendererSetFlags(uint32 rendererFlags);
 void RendererPushQuad(const RendererQuad* quad);
 
+// NOTE(saeb): Pixels are RGBA8, premultiplied, rows top to bottom. Returns 0 (the white texture) on failure.
+RendererTexture RendererCreateTexture(uint32 width, uint32 height, const uint8* pixels);
+
 #endif
