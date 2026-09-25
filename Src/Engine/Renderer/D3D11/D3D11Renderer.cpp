@@ -5,6 +5,7 @@
 #include "Core/Utility.h"
 
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
 
@@ -47,6 +48,7 @@ struct Renderer
     IDXGIAdapter1* Adapter;
     ID3D11Device* Device;
     ID3D11DeviceContext* Context;
+    ID3DUserDefinedAnnotation* Annotation; // Null if unavailable; markers are then skipped
     IDXGISwapChain1* SwapChain;
     uint32 BackBufferWidth, BackBufferHeight;
     bool TearingSupported;
@@ -70,6 +72,39 @@ struct Renderer
     
 };
 static Renderer RendererData;
+
+// NOTE(saeb): Shows up in RenderDoc / PIX and in debug-layer messages, including the live-object report at shutdown.
+static void D3D11SetName(ID3D11DeviceChild* object, const char* name)
+{
+    if(!object)
+    {
+        return;
+    }
+
+    UINT length = 0;
+    while(name[length] != '\0')
+    {
+        ++length;
+    }
+
+    object->SetPrivateData(WKPDID_D3DDebugObjectName, length, name);
+}
+
+static void D3D11BeginEvent(const wchar_t* name)
+{
+    if(RendererData.Annotation)
+    {
+        RendererData.Annotation->BeginEvent(name);
+    }
+}
+
+static void D3D11EndEvent()
+{
+    if(RendererData.Annotation)
+    {
+        RendererData.Annotation->EndEvent();
+    }
+}
 
 static const char QuadShaderSource[] = R"(
 cbuffer QuadConstants : register(b0)
@@ -376,6 +411,9 @@ bool D3D11RendererInit(StackAllocator* allocator, HWND windowHandle)
         return(false);
     }
 
+    // NOTE(saeb): Optional; groups calls in RenderDoc / PIX. A failure just means no markers.
+    RendererData.Context->QueryInterface(IID_PPV_ARGS(&RendererData.Annotation));
+
 #if defined(DEBUG) || defined(_DEBUG)
     // NOTE(saeb): Stop in the debugger on the exact API call that misuses D3D, instead of finding out from a black screen.
     ID3D11InfoQueue* infoQueue = nullptr;
@@ -589,6 +627,9 @@ bool D3D11RendererInit(StackAllocator* allocator, HWND windowHandle)
         return(false);
     }
 
+    D3D11SetName(backBuffer, "BackBuffer");
+    D3D11SetName(RendererData.RenderTargetView, "BackBufferRTV");
+
     backBuffer->Release();
 
     return(true);
@@ -617,6 +658,9 @@ void D3D11RendererBeginFrame(uint32 width, uint32 height)
             return;
         }
 
+        D3D11SetName(backBuffer, "BackBuffer");
+        D3D11SetName(RendererData.RenderTargetView, "BackBufferRTV");
+
         backBuffer->Release();
 
         RendererData.BackBufferWidth = width;
@@ -640,14 +684,19 @@ void D3D11RendererBeginFrame(uint32 width, uint32 height)
     RendererData.Context->RSSetViewports(1, &viewport);
 
     real32 clearColor[4] = { 1.0f, 0.5f, 0.0f, 1.0f };
+
+    D3D11BeginEvent(L"Clear");
     RendererData.Context->ClearRenderTargetView(RendererData.RenderTargetView, clearColor);
+    D3D11EndEvent();
 }
 
 void D3D11RendererEndFrame()
 {
     if(RendererData.RenderTargetView && RendererData.QuadCount > 0)
     {
+        D3D11BeginEvent(L"Quads");
         D3D11FlushQuads();
+        D3D11EndEvent();
     }
 
     // NOTE(saeb): Reset here, not in BeginFrame; BeginFrame can early-out and would leave stale quads behind.
@@ -755,6 +804,12 @@ void D3D11RendererShutdown()
     {
         RendererData.SwapChain->Release();
         RendererData.SwapChain = nullptr;
+    }
+
+    if(RendererData.Annotation)
+    {
+        RendererData.Annotation->Release();
+        RendererData.Annotation = nullptr;
     }
 
     if(RendererData.Context)
