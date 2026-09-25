@@ -808,7 +808,7 @@ void RendererPushQuad(const RendererQuad* quad)
     RendererData.Quads[RendererData.QuadCount++] = *quad;
 }
 
-RendererTexture RendererCreateTexture(uint32 width, uint32 height, const void* pixels)
+RendererTexture RendererCreateTexture(uint32 width, uint32 height, const uint8* pixels)
 {
     // NOTE(saeb): Not initialized, table full, or creation failed: return the white texture, so the quad still draws (white) instead of crashing.
     if(!RendererData.Device || RendererData.TextureCount >= SB_MAX_TEXTURES)
